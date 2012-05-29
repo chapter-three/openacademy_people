@@ -1,0 +1,139 @@
+<?php
+
+/** 
+ * Implementation of hook_install()
+ */
+function openacademy_people_democontent_install() {
+
+}
+
+/**
+ * Callback to get default taxonomy terms
+ */
+function openacademy_people_democontent_get_terms() {
+  return array(
+    'Faculty' => '7c67863d-8548-4095-b6ac-7e1595fa9563',
+    'Visiting Faculty' => '9arf070a-3565-4c06-b487-d281588ecfg7',
+    'Graduate Students' => '4abf010a-0565-4b06-b487-d281512ecfe1',
+    'Staff' => 'ae219139-6d83-464e-8dbf-a05586894b1c',
+  );
+}
+
+/**
+ * Callback to get default taxonomy tags
+ */
+function openacademy_people_democontent_get_tags() {
+  return array(
+    'American South' => 'B0D45DE0-EBDA-47E7-9787-E7E89261BDDB',
+    'Political Philosophy' => 'EDE9F7F6-E011-4D36-905B-2306497D46ED',
+    'Religious Studies' => '660BD26E-BCA9-4863-B350-3FC87F478A2E',
+    'Technology' => '39F000BF-B748-4FE1-B198-E14E131BA76F',
+  );
+}
+
+/**
+ * Implementation of hook_init()
+ */
+function openacademy_people_democontent_init() {
+
+  // Install the taxonomy terms after features has already been installed. 
+  if (!variable_get('openacademy_people_democontent_installed', FALSE) && $vocab = taxonomy_vocabulary_machine_name_load('openacademy_person_type')) {
+
+    // Add default taxonomy terms
+    $person_types = openacademy_people_democontent_get_terms();
+    foreach($person_types as $person_type => $person_uuid) {
+
+      // Add the term 
+      $term = new stdClass;
+      $term->vid = $vocab->vid;
+      $term->uuid = $person_uuid;
+      $term->name = $person_type;
+      $term->vocabulary_machine_name = 'openacademy_person_type';
+      taxonomy_term_save($term);
+
+      // Randomly assign it to a few nodes
+      foreach(db_query('SELECT n.nid FROM {node} n WHERE n.type = :type ORDER BY RAND() LIMIT 4', array(':type' => 'openacademy_person')) as $node) {
+        $node = node_load($node->nid, NULL, TRUE);
+        $node->field_person_type['und'][] = array('tid' => $term->tid);
+        node_save($node);
+      }
+    } 
+
+    // Add default tags
+    $tags = openacademy_people_democontent_get_tags();
+    $vocab = taxonomy_vocabulary_machine_name_load('openacademy_tags');
+    foreach($tags as $tag => $tag_uuid) {
+
+      // Add the term 
+      $term = new stdClass;
+      $term->vid = $vocab->vid;
+      $term->uuid = $tag_uuid;
+      $term->name = $tag;
+      $term->vocabulary_machine_name = 'openacademy_tags';
+      taxonomy_term_save($term);
+
+      // Randomly assign it to a few nodes
+      foreach(db_query('SELECT n.nid FROM {node} n WHERE n.type = :type ORDER BY RAND() LIMIT 4', array(':type' => 'openacademy_person')) as $node) {
+        $node = node_load($node->nid, NULL, TRUE);
+        $node->field_tags['und'][] = array('tid' => $term->tid);
+        node_save($node);             
+      }
+    }
+
+    // Rebuild the taxonomy menu options
+    foreach(taxonomy_get_tree($vocab->vid) as $term) {
+      $args = array(
+        'term' => $term,
+        'menu_name' => variable_get('taxonomy_menu_vocab_menu_' . $vocab->vid, FALSE),
+      );
+      taxonomy_menu_handler('insert', $args);
+    }
+
+    // Add some courses and publications to default content
+    foreach(db_query('SELECT n.nid FROM {node} n WHERE n.type = :type', array(':type' => 'openacademy_person')) as $person) {
+      $person = node_load($person->nid, NULL, TRUE);
+      foreach(db_query('SELECT n.nid FROM {node} n WHERE n.type = :type ORDER BY RAND() LIMIT 5', array(':type' => 'openacademy_course')) as $course) {
+        $person->field_person_courses['und'][] = array('target_id' => $course->nid);
+      }
+      foreach(db_query('SELECT n.nid FROM {node} n WHERE n.type = :type ORDER BY RAND() LIMIT 5', array(':type' => 'openacademy_publication')) as $publication) {
+        $person->field_person_publications['und'][] = array('target_id' => $publication->nid);
+      }
+      node_save($person);
+    }
+
+    // Flush the caches to make sure the nodes get the appropriate data associations
+    drupal_flush_all_caches();
+
+    // Set installed bit to prevent this from running again
+    variable_set('openacademy_people_democontent_installed', TRUE);
+  }
+}
+
+/**
+ * Implementation of hook_disable()
+ */
+function openacademy_people_democontent_disable() {
+
+  // Delete existing terms
+  $people_types = openacademy_people_democontent_get_terms();
+  foreach($people_types as $people_type => $people_type_uuid) {
+    foreach (taxonomy_get_term_by_name($people_type) as $term) {
+      if (isset($term->tid)) {
+        taxonomy_term_delete($term->tid);
+      }
+    }
+  }
+
+  // Delete existing tags
+  $tags = openacademy_people_democontent_get_terms();
+  foreach($tags as $tag => $tag_uuid) {
+    foreach (taxonomy_get_term_by_name($tag) as $term) {
+      if (isset($term->tid)) {
+        taxonomy_term_delete($term->tid);
+      }
+    }
+  }
+
+  // Set installed option
+  variable_set('openacademy_people_democontent_installed', FALSE);
+}
